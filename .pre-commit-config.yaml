@@ -1,0 +1,103 @@
+# Chạy trước mỗi commit, chặn mã bẩn tại máy thay vì để CI bắt sau 2 phút.
+#
+# Cài đặt:  pre-commit install
+# Dòng default_install_hook_types bên dưới khiến lệnh trên cài cả hook
+# commit-msg, nên không cần nhớ `--hook-type commit-msg`.
+#
+# Chạy tay trên toàn repo:  pre-commit run --all-files
+# Nâng phiên bản hook:      pre-commit autoupdate
+
+default_install_hook_types: [pre-commit, commit-msg]
+default_language_version:
+  python: python3
+
+repos:
+  # -------------------------------------------------------------------------
+  # Notebook: xoá output TRƯỚC khi kiểm kích thước file.
+  # Đảo thứ tự hai hook này thì notebook còn ảnh base64 sẽ bị chặn vì vượt
+  # 5 MB, dù ngay sau đó nó sẽ được làm sạch.
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.8.1
+    hooks:
+      - id: nbstripout
+
+  # -------------------------------------------------------------------------
+  # Vệ sinh chung
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        # Lớp chặn thứ hai cho checkpoint và mesh. Lớp một là .gitignore.
+        # Checkpoint TripoSR và file .glb đều dễ vượt trăm MB; lọt vào repo
+        # một lần là phải viết lại lịch sử.
+        args: [--maxkb=5000]
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: check-yaml
+        # docker-compose dùng merge key và anchor, parser mặc định sẽ kêu
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-json
+        exclude: ^\.vscode/|\.ipynb$
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # -------------------------------------------------------------------------
+  # Conventional Commits. commitlint là công cụ Node; bản thuần Python này
+  # hợp hơn với một repo không có package.json.
+  # Scope hợp lệ trùng tên thư mục trong src/ để `git log --oneline` đọc được.
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.0.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args:
+          - --scopes
+          - api,worker,engines,geometry,preprocess,quality,storage,frontend,docker,ci,docs,deps,repo
+          - feat
+          - fix
+          - chore
+          - docs
+          - refactor
+          - test
+          - perf
+          - build
+
+  # -------------------------------------------------------------------------
+  # ruff và mypy chạy bằng chính venv của dự án, không phải một môi trường
+  # riêng do pre-commit dựng. Nhờ vậy phiên bản ở máy, ở hook và ở CI luôn là
+  # một — phiên bản đó khai báo ở nhóm [dev] trong pyproject.toml.
+  # Đánh đổi: phải kích hoạt .venv trước khi commit.
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check --force-exclude --fix
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: mypy
+        name: mypy (src)
+        entry: mypy
+        language: system
+        types_or: [python, pyi]
+        # mypy cần nhìn cả package một lượt, không phải từng file lẻ
+        pass_filenames: false
+        args: [src]
+        require_serial: true

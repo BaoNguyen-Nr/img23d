@@ -1,0 +1,34 @@
+# Máy phát triển chạy Windows (core.autocrlf=true), CI và container chạy Linux.
+# Không có file này thì sớm muộn một script lọt CRLF vào repo và container báo
+# `exec format error` hoặc `'\r': command not found` — lỗi rất khó đoán nguyên nhân.
+* text=auto eol=lf
+
+# Phải là LF tuyệt đối: shell script và file được Docker thực thi
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.Dockerfile    text eol=lf
+Makefile        text eol=lf
+*.conf          text eol=lf
+
+# Notebook là văn bản, để nbstripout và git diff làm việc được
+*.ipynb         text eol=lf
+
+# Nhị phân: không chuyển đổi, không cố diff.
+# .glb đặc biệt quan trọng — nó là định dạng đầu ra của dự án, và một lần
+# chuyển đổi CRLF nhầm là file mesh hỏng mà không có thông báo nào.
+*.jpg           binary
+*.jpeg          binary
+*.png           binary
+*.webp          binary
+*.glb           binary
+*.ply           binary
+*.npy           binary
+*.npz           binary
+*.onnx          binary
+*.pth           binary
+*.pt            binary
+*.ckpt          binary
+
+# gltf và obj là văn bản, diff được
+*.gltf          text eol=lf
+*.obj           text eol=lf

@@ -1,0 +1,176 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+
+[project]
+name = "img23d"
+version = "0.1.0"
+description = "Một ảnh vào, một mesh 3D ra: depth-to-mesh và TripoSR sau cùng một interface"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Bao Nguyen", email = "bao.nguyen2@ntq-solution.com.vn" }]
+keywords = ["3d-reconstruction", "depth-estimation", "mesh", "onnx", "fastapi"]
+classifiers = [
+  "Private :: Do Not Upload",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+
+# Dependency dùng chung cho cả api lẫn worker — thêm ở giai đoạn 4.
+# Dự kiến: pydantic, pydantic-settings, redis, rq, python-json-logger
+dependencies = []
+
+# Chia nhóm để mỗi image chỉ cài đúng phần nó cần. api không bao giờ chạy
+# model, nên nó không được phép kéo theo onnxruntime và open3d — đó là cách
+# giữ image dưới ngưỡng 3 GB trong bảng rủi ro của tài liệu dự án.
+[project.optional-dependencies]
+
+# Giai đoạn 4 — chỉ biên giới HTTP.
+# Dự kiến: fastapi, uvicorn[standard], python-multipart, sse-starlette,
+#          prometheus-fastapi-instrumentator
+api = []
+
+# Giai đoạn 2–3 — nơi duy nhất có runtime suy luận và dựng hình.
+# Dự kiến: onnxruntime, numpy, scipy, pillow, trimesh, open3d, rembg, psutil
+#
+# open3d là thư viện nặng nhất trong danh sách này. Nếu nó làm image phình
+# quá mức ở giai đoạn 5, phương án thay thế trong tài liệu là tự dựng mesh
+# bằng numpy + scipy, hoặc dùng pymeshlab — nên giữ nó ở nhóm riêng để
+# còn gỡ ra được mà không đụng tới phần còn lại.
+worker = []
+
+# Giai đoạn 1 — notebook thử ngưỡng lọc điểm và so hai engine.
+# Dự kiến: jupyterlab, matplotlib, pandas, open3d, trimesh
+nb = []
+
+# Giai đoạn 0 — nhóm duy nhất có thật ở thời điểm này.
+dev = [
+  "ruff>=0.12",
+  "mypy>=1.13",
+  "pytest>=8.3",
+  "pytest-cov>=6.0",
+  "pre-commit>=4.0",
+]
+
+[project.urls]
+Repository = "https://github.com/BaoNguyen-Nr/img23d"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/img23d"]
+
+# ---------------------------------------------------------------------------
+# Ruff — lint + format, thay cho black, isort và flake8
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+extend-exclude = ["notebooks", "models", "data"]
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort — thứ tự import
+  "N",   # pep8-naming
+  "UP",  # pyupgrade — cú pháp cũ so với python_requires
+  "B",   # flake8-bugbear — bẫy logic phổ biến
+  "C4",  # comprehension thừa
+  "SIM", # đoạn code viết dài dòng không cần thiết
+  "PTH", # ép dùng pathlib thay os.path
+  "T20", # chặn print lọt vào src
+  "S",   # bandit — vấn đề bảo mật
+  "RUF", # quy tắc riêng của ruff
+]
+ignore = [
+  "E501", # độ dài dòng đã do formatter lo
+]
+
+[tool.ruff.lint.per-file-ignores]
+# assert là cách viết đúng trong test, không phải lỗi bảo mật
+"tests/**" = ["S101"]
+# script CLI in ra stdout là hành vi mong muốn
+"scripts/**" = ["T201"]
+# Toán hình học đọc tự nhiên hơn với tên biến một chữ: K, R, T, N, xyz
+"src/img23d/geometry/**" = ["N803", "N806"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["img23d"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# ---------------------------------------------------------------------------
+# mypy — chỉ kiểm src/, không đụng notebook
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+mypy_path = "src"
+explicit_package_bases = true
+namespace_packages = true
+
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_return_any = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unused_configs = true
+show_error_codes = true
+pretty = true
+
+# Các thư viện dưới đây không phát hành type stub. Không khai báo ở đây thì
+# mypy đỏ ngay tại dòng import đầu tiên của engines/ và geometry/.
+[[tool.mypy.overrides]]
+module = [
+  "cv2.*",
+  "onnxruntime.*",
+  "rq.*",
+  "open3d.*",
+  "trimesh.*",
+  "rembg.*",
+  "pymeshlab.*",
+  "scipy.*",
+  "skimage.*",
+  "transformers.*",
+]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# -m 'not slow': test chạy model thật hoặc dựng mesh đầy đủ mất hàng chục
+# giây đến vài phút. Mặc định bỏ qua để `pytest` trên máy vẫn xong trong vài
+# giây; CI gọi riêng bằng `pytest -m slow` khi cần.
+addopts = "-ra --strict-markers --strict-config -m 'not slow'"
+markers = [
+  "slow: test chạy lâu — inference thật, dựng mesh, hoặc ảnh lớn",
+  "integration: cần dịch vụ ngoài (Redis, volume dùng chung)",
+  "needs_models: cần checkpoint trong models/, bỏ qua nếu chưa tải",
+]
+
+[tool.coverage.run]
+source = ["src/img23d"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+]

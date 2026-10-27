@@ -1,0 +1,72 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [develop, main]
+  # Chỉ chạy khi đẩy thẳng vào hai nhánh tích hợp. Để trống `branches` thì mỗi
+  # lần push nhánh feature sẽ sinh hai run trùng nhau cho cùng một commit.
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+# Mặc định của GitHub rộng hơn mức workflow này cần.
+permissions:
+  contents: read
+
+# Push liên tiếp vào cùng một PR sẽ huỷ run cũ thay vì xếp hàng.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Cài dependency
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: ruff check
+        # --output-format=github gắn lỗi vào đúng dòng trong tab Files changed
+        run: ruff check --output-format=github .
+
+      - name: ruff format --check
+        run: ruff format --check --diff .
+
+      - name: mypy
+        run: mypy src
+
+  # ---------------------------------------------------------------------------
+  # Job gom kết quả. Đây là job duy nhất khai trong branch protection.
+  #
+  # Status check mà GitHub hiển thị mang tên JOB, không phải tên workflow. Nhờ
+  # job này, giai đoạn 6 thêm test/build/security chỉ cần nối vào `needs` mà
+  # không phải sửa lại luật nhánh — kể cả khi chạy ma trận Python và tên check
+  # của các job kia biến thành "lint (3.11)", "lint (3.12)".
+  #
+  # `if: always()` là bắt buộc: thiếu nó, lint đỏ sẽ khiến job này bị skip, mà
+  # một required check ở trạng thái skipped lại được GitHub tính là đạt.
+  # ---------------------------------------------------------------------------
+  ci:
+    name: ci
+    needs: [lint]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kiểm tra kết quả các job
+        run: |
+          echo "Kết quả: ${{ join(needs.*.result, ', ') }}"
+          if ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then
+            echo "::error::Có job không xanh — không được merge."
+            exit 1
+          fi
